@@ -4,7 +4,12 @@ clear
 mkdir -p ~/.cloudshell && touch ~/.cloudshell/no-apt-get-warning # Для Google Cloud Shell, но лучше там не выполнять
 echo "Установка зависимостей..."
 apt update -y && apt install sudo -y # Для Aeza Terminator, там sudo не установлен по умолчанию
-sudo rm -f /etc/apt/sources.list.d/yarn.list # Для GitHub Codespaces
+# Для GitHub Codespaces
+out="$(sudo apt-get update -y --fix-missing 2>&1)" || {
+  echo "$out" | grep -qiE "dl\.yarnpkg\.com|NO_PUBKEY 62D54FD4003F6525|is not signed" || { echo "$out"; exit 1; }
+  echo "[WARN] Yarn repo ломает apt update — удаляю yarn.list и повторяю..."
+  sudo rm -f /etc/apt/sources.list.d/yarn.list
+}
 sudo apt-get update -y --fix-missing && sudo apt-get install wireguard-tools jq wget qrencode -y --fix-missing # Update второй раз, если sudo установлен и обязателен (в строке выше не сработал)
 
 priv="${1:-$(wg genkey | tr -d '\n')}"
