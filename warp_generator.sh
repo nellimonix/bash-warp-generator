@@ -4,23 +4,36 @@ clear
 mkdir -p ~/.cloudshell && touch ~/.cloudshell/no-apt-get-warning # Для Google Cloud Shell, но лучше там не выполнять
 echo "Установка зависимостей..."
 apt update -y && apt install sudo -y # Для Aeza Terminator, там sudo не установлен по умолчанию
+# Для GitHub Codespaces
+out="$(sudo apt-get update -y --fix-missing 2>&1)" || {
+  echo "$out" | grep -qiE "dl\.yarnpkg\.com|NO_PUBKEY 62D54FD4003F6525|is not signed" || { echo "$out"; exit 1; }
+  echo "[WARN] Yarn repo ломает apt update — удаляю yarn.list и повторяю..."
+  sudo rm -f /etc/apt/sources.list.d/yarn.list
+}
 sudo apt-get update -y --fix-missing && sudo apt-get install wireguard-tools jq wget qrencode -y --fix-missing # Update второй раз, если sudo установлен и обязателен (в строке выше не сработал)
 
-priv="${1:-$(wg genkey)}"
-pub="${2:-$(echo "${priv}" | wg pubkey)}"
+priv="${1:-$(wg genkey | tr -d '\n')}"
+pub="${2:-$(printf "%s" "${priv}" | wg pubkey | tr -d '\n')}"
 api="https://api.cloudflareclient.com/v0i1909051800"
-ins() { curl -s -H 'user-agent:' -H 'content-type: application/json' -X "$1" "${api}/$2" "${@:3}"; }
-sec() { ins "$1" "$2" -H "authorization: Bearer $3" "${@:4}"; }
-response=$(ins POST "reg" -d "{\"install_id\":\"\",\"tos\":\"$(date -u +%FT%T.000Z)\",\"key\":\"${pub}\",\"fcm_token\":\"\",\"type\":\"ios\",\"locale\":\"en_US\"}")
+ins() { curl -s -H 'User-Agent: okhttp/3.12.1' -H 'Content-Type: application/json' -X "$1" "${api}/$2" "${@:3}"; }
+sec() { ins "$1" "$2" -H "Authorization: Bearer $3" "${@:4}"; }
+response=$(ins POST "reg" -d "{\"install_id\":\"\",\"tos\":\"$(date -u +%FT%TZ)\",\"key\":\"${pub}\",\"fcm_token\":\"\",\"type\":\"ios\",\"locale\":\"en_US\"}")
 
 clear
 id=$(echo "$response" | jq -r '.result.id')
 token=$(echo "$response" | jq -r '.result.token')
+# Если Cloudflare вернул ошибку
+if [ "$id" = "null" ] || [ -z "$id" ] || [ "$token" = "null" ] || [ -z "$token" ]; then
+  echo "[ERROR] Registration failed:"
+  echo "$response" | jq .
+  exit 1
+fi
 response=$(sec PATCH "reg/${id}" "$token" -d '{"warp_enabled":true}')
 peer_pub=$(echo "$response" | jq -r '.result.config.peers[0].public_key')
 #peer_endpoint=$(echo "$response" | jq -r '.result.config.peers[0].endpoint.host')
 client_ipv4=$(echo "$response" | jq -r '.result.config.interface.addresses.v4')
 client_ipv6=$(echo "$response" | jq -r '.result.config.interface.addresses.v6')
+
 
 conf=$(cat <<-EOM
 [Interface]
