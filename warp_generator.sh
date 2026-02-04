@@ -59,13 +59,57 @@ Endpoint = 162.159.192.1:500
 EOM
 )
 
+AWG_JSON=$(jq -n \
+    --arg pr "$priv" \
+    --arg i1 "$I1_VAL" \
+    --arg v4 "$client_ipv4" \
+    --arg v6 "$client_ipv6" \
+    --arg pp "$peer_pub" \
+    --arg cf "$conf" \
+    '{
+        H1: "1", H2: "2", H3: "3", H4: "4",
+        I1: $i1, Jc: "120", Jmax: "911", Jmin: "23", S1: "0", S2: "0",
+        allowed_ips: ["0.0.0.0/0", "::/0"],
+        client_ip: ($v4 + ", " + $v6),
+        client_priv_key: $pr,
+        config: ($cf | gsub("\n"; "\r\n")),
+        hostName: "162.159.192.1",
+        mtu: 1280,
+        port: 500,
+        server_pub_key: $pp
+    }')
+
+AMNEZIA_JSON=$(jq -n \
+    --arg last "$AWG_JSON" \
+    --arg name "Cloudflare WARP" \
+    '{
+        containers: [
+            {
+                container: "amnezia-awg",
+                awg: {
+                    isThirdPartyConfig: true,
+                    last_config: $last,
+                    port: "500",
+                    transport_proto: "udp"
+                }
+            }
+        ],
+        defaultContainer: "amnezia-awg",
+        description: $name,
+        hostName: "162.159.192.1"
+    }')
+
+VPN_KEY="vpn://$(echo -n "$AMNEZIA_JSON" | base64 -w 0)"
+
+[ -t 1 ] && echo "########## СТРОКА ДЛЯ AMNEZIAVPN ##########"
+echo "$VPN_KEY"
+[ -t 1 ] && echo "########### КОНЕЦ СТРОКИ ДЛЯ AMNEZIAVPN ###########"
+
 echo -e "\n\n\n"
 [ -t 1 ] && echo "########## НАЧАЛО КОНФИГА ##########"
 echo "${conf}"
 [ -t 1 ] && echo "########### КОНЕЦ КОНФИГА ###########"
 
-echo -e "\nОтсканируйте QR код конфигурации с помощью приложения AmneziaVPN на смартфон:\n"
-echo "$conf" | qrencode -t utf8
 echo -e "\n"
 conf_base64=$(echo -n "${conf}" | base64 -w 0)
 echo "Скачать конфиг файлом: https://immalware.vercel.app/download?filename=WARP.conf&content=${conf_base64}"
